@@ -1,0 +1,44 @@
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ground);
+  opacity: 1;
+  transition: opacity 400ms ease;
+}
+.splash-fade {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.splash-beam {
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--ink) 14%, transparent) 0%, transparent 70%);
+  animation: splash-beam-pulse 1.4s ease-in-out infinite;
+}
+
+.splash-logo {
+  position: relative;
+  z-index: 1;
+  height: 84px;
+  width: auto;
+  animation: splash-logo-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-color-scheme: dark) {
+  .splash-logo { filter: invert(1); }
+}
+
+@keyframes splash-logo-pulse {
+  0%, 100% { opacity: .55; transform: scale(.97); }
+  50%      { opacity: 1;   transform: scale(1.03); }
+}
+@keyframes splash-beam-pulse {
+  0%, 100% { opacity: .35; transform: scale(.9); }
+  50%      { opacity: .8;  transform: scale(1.15); }
+}
