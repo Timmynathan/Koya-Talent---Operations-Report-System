@@ -18,44 +18,48 @@ function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-type ValidationResult =
-  | { ok: true; period_start: string; period_end: string }
-  | { ok: false; error: string };
+type ValidatedRange = { period_start: string; period_end: string };
 
-function validateBody(body: unknown): ValidationResult {
+// Returns an error message string on failure, or the validated range on
+// success. Deliberately not a { ok: boolean } discriminated union — Vercel's
+// isolated type-check of /api files (separate from our own tsc -b, which
+// passes clean) has failed to narrow that pattern in practice. A plain
+// typeof check is about as basic as narrowing gets, so it's used here
+// defensively rather than to satisfy any particular checker's quirks.
+function validateBody(body: unknown): string | ValidatedRange {
   if (typeof body !== 'object' || body === null) {
-    return { ok: false, error: 'Request body must be a JSON object.' };
+    return 'Request body must be a JSON object.';
   }
   const { period_start, period_end } = body as Record<string, unknown>;
 
   if (typeof period_start !== 'string' || typeof period_end !== 'string' || !period_start || !period_end) {
-    return { ok: false, error: 'period_start and period_end are required strings.' };
+    return 'period_start and period_end are required strings.';
   }
   if (!DATE_RE.test(period_start) || !DATE_RE.test(period_end)) {
-    return { ok: false, error: 'Dates must be in YYYY-MM-DD format.' };
+    return 'Dates must be in YYYY-MM-DD format.';
   }
   if (!isValidCalendarDate(period_start)) {
-    return { ok: false, error: `period_start (${period_start}) is not a valid calendar date.` };
+    return `period_start (${period_start}) is not a valid calendar date.`;
   }
   if (!isValidCalendarDate(period_end)) {
-    return { ok: false, error: `period_end (${period_end}) is not a valid calendar date.` };
+    return `period_end (${period_end}) is not a valid calendar date.`;
   }
   if (period_start > period_end) {
-    return { ok: false, error: 'period_start must not be after period_end.' };
+    return 'period_start must not be after period_end.';
   }
 
   const spanDays = Math.round(
     (Date.parse(`${period_end}T00:00:00Z`) - Date.parse(`${period_start}T00:00:00Z`)) / MS_PER_DAY
   ) + 1;
   if (spanDays > MAX_SPAN_DAYS) {
-    return { ok: false, error: `Range cannot exceed ${MAX_SPAN_DAYS} days (requested ${spanDays}).` };
+    return `Range cannot exceed ${MAX_SPAN_DAYS} days (requested ${spanDays}).`;
   }
 
   if (period_end > todayUTC()) {
-    return { ok: false, error: 'period_end cannot be in the future.' };
+    return 'period_end cannot be in the future.';
   }
 
-  return { ok: true, period_start, period_end };
+  return { period_start, period_end };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -66,8 +70,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const result = validateBody(req.body);
-  if (!result.ok) {
-    res.status(400).json({ error: result.error });
+  if (typeof result === 'string') {
+    res.status(400).json({ error: result });
     return;
   }
   const { period_start, period_end } = result;
