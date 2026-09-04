@@ -1,0 +1,123 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+// Minimal local typing for what Vercel's Node.js runtime augments onto the
+// request/response objects (parsed JSON body, res.status().json()). This
+// avoids adding @vercel/node as a dependency just for types — the runtime
+// behavior (body parsing, these helper methods) is provided by Vercel's
+// builder regardless of what types we declare here.
+interface VercelRequest extends IncomingMessage {
+  method?: string;
+  body?: unknown;
+}
+interface VercelResponse extends ServerResponse {
+  status(code: number): VercelResponse;
+  json(body: unknown): void;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_SPAN_DAYS = 400;
+const MS_PER_DAY = 86_400_000;
+
+function isValidCalendarDate(value: string): boolean {
+  if (!DATE_RE.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  if (Number.isNaN(ms)) return false;
+  // Date.parse normalizes out-of-range days/months (e.g. 2026-02-30 becomes
+  // 2026-03-02) instead of rejecting them — round-tripping back to the same
+  // string is what actually catches that.
+  return new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+function todayUTC(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+type ValidationResult =
+  | { ok: true; period_start: string; period_end: string }
+  | { ok: false; error: string };
+
+function validateBody(body: unknown): ValidationResult {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, error: 'Request body must be a JSON object.' };
+  }
+  const { period_start, period_end } = body as Record<string, unknown>;
+
+  if (typeof period_start !== 'string' || typeof period_end !== 'string' || !period_start || !period_end) {
+    return { ok: false, error: 'period_start and period_end are required strings.' };
+  }
+  if (!DATE_RE.test(period_start) || !DATE_RE.test(period_end)) {
+    return { ok: false, error: 'Dates must be in YYYY-MM-DD format.' };
+  }
+  if (!isValidCalendarDate(period_start)) {
+    return { ok: false, error: `period_start (${period_start}) is not a valid calendar date.` };
+  }
+  if (!isValidCalendarDate(period_end)) {
+    return { ok: false, error: `period_end (${period_end}) is not a valid calendar date.` };
+  }
+  if (period_start > period_end) {
+    return { ok: false, error: 'period_start must not be after period_end.' };
+  }
+
+  const spanDays = Math.round(
+    (Date.parse(`${period_end}T00:00:00Z`) - Date.parse(`${period_start}T00:00:00Z`)) / MS_PER_DAY
+  ) + 1;
+  if (spanDays > MAX_SPAN_DAYS) {
+    return { ok: false, error: `Range cannot exceed ${MAX_SPAN_DAYS} days (requested ${spanDays}).` };
+  }
+
+  if (period_end > todayUTC()) {
+    return { ok: false, error: 'period_end cannot be in the future.' };
+  }
+
+  return { ok: true, period_start, period_end };
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    res.status(405).json({ error: 'Method not allowed. Use POST.' });
+    return;
+  }
+
+  const result = validateBody(req.body);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  const { period_start, period_end } = result;
+
+  const webhookUrl = process.env.N8N_CUSTOM_WEBHOOK_URL;
+  const webhookSecret = process.env.N8N_WEBHOOK_SECRET;
+
+  if (!webhookUrl || !webhookSecret) {
+    // Deliberately generic — never state which var is missing or echo either value.
+    console.error('run-report: server is missing required webhook configuration');
+    res.status(500).json({ error: 'Server is not configured to run reports.' });
+    return;
+  }
+
+  try {
+    const n8nRes = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-report-secret': webhookSecret,
+      },
+      body: JSON.stringify({ period_start, period_end }),
+    });
+
+    if (!n8nRes.ok) {
+      console.error('run-report: webhook responded with a non-2xx status', n8nRes.status);
+      res.status(502).json({ error: 'The report worker could not accept this request. Please try again.' });
+      return;
+    }
+  } catch {
+    // Deliberately not logging the caught error's message: a fetch failure
+    // to an unreachable host can embed the target URL in its message.
+    console.error('run-report: webhook request failed');
+    res.status(502).json({ error: 'Could not reach the report worker. Please try again.' });
+    return;
+  }
+
+  res.status(202).json({ accepted: true });
+}

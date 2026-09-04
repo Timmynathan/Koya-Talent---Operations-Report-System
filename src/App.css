@@ -363,3 +363,39 @@
 @media (prefers-reduced-motion: reduce) { .report { animation: none; } }
 
 .state-msg { color: var(--ink-2); font-size: .9rem; }
+
+/* ---- Custom date range ---- */
+.custom-range {
+  margin-bottom: var(--space-3);
+  display: flex; flex-direction: column; gap: .6rem;
+}
+.custom-range-fields {
+  display: flex; align-items: flex-end; gap: var(--space-2); flex-wrap: wrap;
+}
+.custom-field {
+  display: flex; flex-direction: column; gap: .3rem;
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--ink-3);
+}
+.custom-field input[type="date"] {
+  font: inherit; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: .85rem; font-weight: 500; text-transform: none; letter-spacing: 0;
+  padding: .45rem .6rem; border-radius: var(--radius-control);
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+  color-scheme: light dark;
+}
+.custom-field input[type="date"]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.custom-run-btn, .custom-check-btn {
+  font: inherit; font-family: var(--font-sans); font-size: .85rem; font-weight: 600;
+  padding: .55rem 1.1rem; border-radius: var(--radius-control);
+  border: 1px solid var(--hairline); background: var(--ink); color: var(--ground);
+  cursor: pointer;
+}
+.custom-run-btn:disabled { opacity: .4; cursor: not-allowed; }
+.custom-run-btn:focus-visible, .custom-check-btn:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.custom-check-btn { background: var(--surface); color: var(--ink); }
+.custom-hint { margin: 0; font-size: .82rem; color: var(--ink-2); }

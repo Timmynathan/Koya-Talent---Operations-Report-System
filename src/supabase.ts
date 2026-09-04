@@ -19,3 +19,18 @@ export async function getLatestRun(periodType: PeriodType) {
   if (error) throw error;
   return data;
 }
+
+export async function getCustomRun(periodStart: string, periodEnd: string) {
+  const { data, error } = await supabase
+    .from('report_runs')
+    .select('*')
+    .eq('period_type', 'custom')
+    .eq('period_start', periodStart)
+    .eq('period_end', periodEnd)
+    .order('run_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}

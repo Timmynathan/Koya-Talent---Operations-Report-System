@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import { getLatestRun } from './supabase';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { getLatestRun, getCustomRun } from './supabase';
 import type { PeriodType } from './supabase';
 import opsrLogo from './assets/opsr-logo.png';
 import './App.css';
@@ -11,7 +11,24 @@ const PERIODS: { key: PeriodType; label: string }[] = [
   { key: 'last_30', label: 'Last 30 days' },
   { key: 'last_90', label: 'Last 90 days' },
   { key: 'ytd',     label: 'Year to date' },
+  { key: 'custom',  label: 'Custom range' },
 ];
+
+const CUSTOM_MAX_SPAN_DAYS = 400;
+
+function validateCustomRange(start: string, end: string): string | null {
+  if (!start || !end) return 'Both dates are required.';
+  if (start > end) return 'Start date must not be after end date.';
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (end > todayStr) return 'End date cannot be in the future.';
+  const spanDays = Math.round(
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+  ) + 1;
+  if (spanDays > CUSTOM_MAX_SPAN_DAYS) return `Range cannot exceed ${CUSTOM_MAX_SPAN_DAYS} days.`;
+  return null;
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const isRate = (v: any): v is Rate =>
   v && typeof v === 'object' && 'denominator' in v;
@@ -262,7 +279,27 @@ export default function App() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [customPhase, setCustomPhase] =
+    useState<'idle' | 'checking' | 'submitting' | 'polling' | 'timeout'>('idle');
+  const [customError, setCustomError] = useState<string | null>(null);
+  const pollAbortRef = useRef(false);
+  const submittedAtRef = useRef<number | null>(null);
+
   useEffect(() => {
+    // Switching periods (including into or out of "custom") invalidates
+    // whatever poll loop might be in flight for the previous selection.
+    pollAbortRef.current = true;
+    setCustomPhase('idle');
+    setCustomError(null);
+
+    if (period === 'custom') {
+      // Custom range is driven by the date form, not fetched automatically.
+      setRun(null); setErr(null); setLoading(false);
+      return;
+    }
+
     setRun(null); setErr(null); setLoading(true);
     getLatestRun(period)
       .then(setRun)
@@ -270,10 +307,111 @@ export default function App() {
       .finally(() => setLoading(false));
   }, [period]);
 
+  useEffect(() => {
+    return () => { pollAbortRef.current = true; };
+  }, []);
+
+  async function handleCustomSubmit(forceRecompute: boolean) {
+    const validationMessage = validateCustomRange(customStart, customEnd);
+    if (validationMessage) { setCustomError(validationMessage); return; }
+    setCustomError(null);
+
+    if (!forceRecompute) {
+      setCustomPhase('checking');
+      try {
+        const existing = await getCustomRun(customStart, customEnd);
+        if (existing) {
+          setRun(existing);
+          setCustomPhase('idle');
+          return;
+        }
+      } catch (e: any) {
+        setCustomPhase('idle');
+        setCustomError(e?.message ?? 'Could not check for an existing snapshot.');
+        return;
+      }
+    }
+
+    setCustomPhase('submitting');
+    const submittedAt = Date.now();
+    try {
+      const res = await fetch('/api/run-report', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ period_start: customStart, period_end: customEnd }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as any);
+        throw new Error(body.error ?? `Request failed (${res.status}).`);
+      }
+    } catch (e: any) {
+      setCustomPhase('idle');
+      setCustomError(e?.message ?? 'Could not start the report run.');
+      return;
+    }
+
+    submittedAtRef.current = submittedAt;
+    pollAbortRef.current = false;
+    setCustomPhase('polling');
+
+    const deadline = submittedAt + 120_000;
+    while (Date.now() < deadline) {
+      await sleep(2000);
+      if (pollAbortRef.current) return;
+      try {
+        const found = await getCustomRun(customStart, customEnd);
+        if (pollAbortRef.current) return;
+        if (found && new Date(found.run_at).getTime() > submittedAt) {
+          setRun(found);
+          setCustomPhase('idle');
+          return;
+        }
+      } catch {
+        // Transient poll error — keep trying until the deadline.
+      }
+    }
+    if (!pollAbortRef.current) setCustomPhase('timeout');
+  }
+
+  async function handleCheckAgain() {
+    if (submittedAtRef.current == null) return;
+    setCustomPhase('checking');
+    try {
+      const found = await getCustomRun(customStart, customEnd);
+      if (found && new Date(found.run_at).getTime() > submittedAtRef.current) {
+        setRun(found);
+        setCustomPhase('idle');
+      } else {
+        setCustomPhase('timeout');
+      }
+    } catch (e: any) {
+      setCustomPhase('timeout');
+      setCustomError(e?.message ?? 'Could not check for the snapshot.');
+    }
+  }
+
+  function handleCustomStartChange(value: string) {
+    setCustomStart(value);
+    setRun(null);
+    setCustomPhase('idle');
+    setCustomError(null);
+  }
+
+  function handleCustomEndChange(value: string) {
+    setCustomEnd(value);
+    setRun(null);
+    setCustomPhase('idle');
+    setCustomError(null);
+  }
+
   const cur = run?.metrics_current ?? {};
   const pri = run?.metrics_prior ?? {};
   const ins = run?.insights ?? {};
   const st  = run?.source_status ?? {};
+
+  const isCustomBusy = customPhase === 'checking' || customPhase === 'submitting' || customPhase === 'polling';
+  const customValidationMessage = validateCustomRange(customStart, customEnd);
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="wrap">
@@ -284,7 +422,13 @@ export default function App() {
           <p className="sub">
             {run
               ? `${run.period_start} to ${run.period_end} · last updated ${new Date(run.run_at).toLocaleString()}`
-              : loading ? 'Loading…' : 'No report yet for this period'}
+              : period === 'custom'
+                ? (customPhase === 'checking' ? 'Checking for an existing snapshot…'
+                  : customPhase === 'submitting' ? 'Starting the report run…'
+                  : customPhase === 'polling' ? 'Computing… this pulls three sources and can take up to a minute.'
+                  : customPhase === 'timeout' ? 'Still computing — this is taking longer than expected.'
+                  : 'Choose a date range to run a custom report.')
+                : loading ? 'Loading…' : 'No report yet for this period'}
           </p>
         </div>
         <div className="period-control">
@@ -299,9 +443,54 @@ export default function App() {
         </div>
       </div>
 
+      {period === 'custom' && (
+        <div className="custom-range">
+          <div className="custom-range-fields">
+            <label className="custom-field">
+              <span>Start date</span>
+              <input
+                type="date"
+                value={customStart}
+                max={todayStr}
+                onChange={e => handleCustomStartChange(e.target.value)}
+              />
+            </label>
+            <label className="custom-field">
+              <span>End date</span>
+              <input
+                type="date"
+                value={customEnd}
+                max={todayStr}
+                onChange={e => handleCustomEndChange(e.target.value)}
+              />
+            </label>
+            <button
+              className="custom-run-btn"
+              disabled={isCustomBusy || !!customValidationMessage}
+              onClick={() => handleCustomSubmit(!!run)}
+            >
+              {isCustomBusy ? 'Working…' : run ? 'Recompute' : 'Run report'}
+            </button>
+            {customPhase === 'timeout' && (
+              <button className="custom-check-btn" onClick={handleCheckAgain}>Check again</button>
+            )}
+          </div>
+
+          {customValidationMessage && (customStart || customEnd) && !isCustomBusy && (
+            <p className="custom-hint">{customValidationMessage}</p>
+          )}
+          {customError && <div className="banner">{customError}</div>}
+          {customPhase === 'timeout' && !customError && (
+            <div className="banner">
+              This is taking longer than expected. The snapshot may still appear shortly — feel free to check again.
+            </div>
+          )}
+        </div>
+      )}
+
       {err && <div className="banner">Could not load the report: {err}</div>}
       {loading && !err && <p className="state-msg">Loading…</p>}
-      {!loading && !run && !err && (
+      {!loading && !run && !err && period !== 'custom' && (
         <p className="state-msg">No report has been generated for this period yet.</p>
       )}
 
