@@ -62,10 +62,48 @@ function validateBody(body: unknown): string | ValidatedRange {
   return { period_start, period_end };
 }
 
+// Verifies the bearer token against Supabase's own auth endpoint — never
+// decoded or trusted locally, and never checked against the service role
+// key or a JWT secret (neither exists in this project). A 200 from
+// /auth/v1/user means the token is a currently-valid session; anything
+// else means it is not.
+async function isAuthorized(req: VercelRequest): Promise<boolean> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+
+  // Prefer plain SUPABASE_* vars if present; fall back to the VITE_-prefixed
+  // ones, which are also visible to a Vercel function's process.env (the
+  // VITE_ prefix only controls client-bundle inlining, not server access).
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('run-report: missing Supabase configuration for auth verification');
+    return false;
+  }
+
+  try {
+    const verifyRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: {
+        authorization: authHeader,
+        apikey: supabaseAnonKey,
+      },
+    });
+    return verifyRes.status === 200;
+  } catch {
+    console.error('run-report: auth verification request failed');
+    return false;
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     res.status(405).json({ error: 'Method not allowed. Use POST.' });
+    return;
+  }
+
+  if (!(await isAuthorized(req))) {
+    res.status(401).json({ error: 'Sign-in required.' });
     return;
   }
 

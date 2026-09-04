@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { getLatestRun, getCustomRun } from './supabase';
+import { getLatestRun, getCustomRun, supabase } from './supabase';
 import type { PeriodType } from './supabase';
+import { useSession } from './useSession';
+import SignIn from './SignIn';
 import opsrLogo from './assets/opsr-logo.png';
 import './App.css';
 
@@ -274,6 +276,9 @@ function Section({ title, status, ring, children }:
 }
 
 export default function App() {
+  const session = useSession();
+  const userId = session?.user?.id ?? null;
+
   const [period, setPeriod] = useState<PeriodType>('last_30');
   const [run, setRun] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -290,22 +295,27 @@ export default function App() {
   useEffect(() => {
     // Switching periods (including into or out of "custom") invalidates
     // whatever poll loop might be in flight for the previous selection.
+    // Also keyed on userId: signing out clears whatever is on screen, and
+    // signing back in (without a full page reload) forces a fresh fetch
+    // instead of leaving the previous user's stale snapshot state around.
     pollAbortRef.current = true;
     setCustomPhase('idle');
     setCustomError(null);
+    setRun(null); setErr(null);
 
-    if (period === 'custom') {
-      // Custom range is driven by the date form, not fetched automatically.
-      setRun(null); setErr(null); setLoading(false);
+    if (!userId || period === 'custom') {
+      // Not signed in, or custom range is driven by the date form rather
+      // than fetched automatically — either way, nothing to fetch yet.
+      setLoading(false);
       return;
     }
 
-    setRun(null); setErr(null); setLoading(true);
+    setLoading(true);
     getLatestRun(period)
       .then(setRun)
       .catch(e => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [period]);
+  }, [period, userId]);
 
   useEffect(() => {
     return () => { pollAbortRef.current = true; };
@@ -337,7 +347,10 @@ export default function App() {
     try {
       const res = await fetch('/api/run-report', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(session?.access_token ? { authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ period_start: customStart, period_end: customEnd }),
       });
       if (!res.ok) {
@@ -404,6 +417,28 @@ export default function App() {
     setCustomError(null);
   }
 
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    // useSession's onAuthStateChange fires with session = null, which
+    // unmounts the dashboard in favor of <SignIn/> — but also clear the
+    // snapshot explicitly so a sign-in-again-without-reload doesn't
+    // briefly flash the previous session's figures before refetching.
+    setRun(null);
+    setErr(null);
+  }
+
+  if (session === undefined) {
+    // Still checking for an existing session — a neutral placeholder,
+    // never the login form, so an already-signed-in user never sees it flash.
+    return <div className="auth-checking" role="status" aria-live="polite">
+      <span className="sr-only">Loading…</span>
+    </div>;
+  }
+
+  if (session === null) {
+    return <SignIn />;
+  }
+
   const cur = run?.metrics_current ?? {};
   const pri = run?.metrics_prior ?? {};
   const ins = run?.insights ?? {};
@@ -431,15 +466,18 @@ export default function App() {
                 : loading ? 'Loading…' : 'No report yet for this period'}
           </p>
         </div>
-        <div className="period-control">
-          <span className="period-icon"><IconCalendar /></span>
-          <div className="segmented">
-            {PERIODS.map(p => (
-              <button key={p.key} aria-pressed={period === p.key} onClick={() => setPeriod(p.key)}>
-                {p.label}
-              </button>
-            ))}
+        <div className="topbar-right">
+          <div className="period-control">
+            <span className="period-icon"><IconCalendar /></span>
+            <div className="segmented">
+              {PERIODS.map(p => (
+                <button key={p.key} aria-pressed={period === p.key} onClick={() => setPeriod(p.key)}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
+          <button className="signout-btn" onClick={handleSignOut}>Sign out</button>
         </div>
       </div>
 

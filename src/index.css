@@ -38,3 +38,13 @@ body {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }
+
+/* Shown only while the initial session check is in flight — deliberately
+   blank rather than a spinner, so it never reads as "the login form is
+   about to appear" for an already-signed-in user. */
+.auth-checking { min-height: 100vh; background: var(--ground); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}

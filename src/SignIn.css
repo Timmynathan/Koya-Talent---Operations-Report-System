@@ -1,0 +1,49 @@
+.signin-wrap {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-3);
+  background: var(--ground);
+}
+
+.signin-card {
+  width: 100%; max-width: 340px;
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-radius: var(--radius-card); padding: var(--space-3) var(--space-3) calc(var(--space-3) + 4px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+
+.signin-logo { height: 30px; width: auto; margin-bottom: var(--space-2); }
+@media (prefers-color-scheme: dark) { .signin-logo { filter: invert(1); } }
+
+.signin-card h1 { font-size: 1.15rem; font-weight: 700; margin: 0; color: var(--ink); }
+.signin-sub { color: var(--ink-3); font-size: .82rem; margin: .2rem 0 0; }
+
+.signin-field {
+  width: 100%; display: flex; flex-direction: column; gap: .3rem; text-align: left;
+  font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--ink-3); margin-top: var(--space-2);
+}
+.signin-field input {
+  font: inherit; font-family: var(--font-sans); font-size: .92rem; font-weight: 400;
+  text-transform: none; letter-spacing: 0;
+  padding: .55rem .7rem; border-radius: var(--radius-control);
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+}
+.signin-field input:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.signin-card button[type="submit"] {
+  width: 100%; margin-top: var(--space-3);
+  font: inherit; font-family: var(--font-sans); font-size: .9rem; font-weight: 600;
+  padding: .6rem 1rem; border-radius: var(--radius-control);
+  border: 1px solid var(--hairline); background: var(--ink); color: var(--ground);
+  cursor: pointer;
+}
+.signin-card button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
+.signin-card button[type="submit"]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+.signin-card .banner { width: 100%; margin-top: var(--space-2); text-align: left; }
