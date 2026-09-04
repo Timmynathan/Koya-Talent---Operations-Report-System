@@ -1,18 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-
-// Minimal local typing for what Vercel's Node.js runtime augments onto the
-// request/response objects (parsed JSON body, res.status().json()). This
-// avoids adding @vercel/node as a dependency just for types — the runtime
-// behavior (body parsing, these helper methods) is provided by Vercel's
-// builder regardless of what types we declare here.
-interface VercelRequest extends IncomingMessage {
-  method?: string;
-  body?: unknown;
-}
-interface VercelResponse extends ServerResponse {
-  status(code: number): VercelResponse;
-  json(body: unknown): void;
-}
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SPAN_DAYS = 400;
