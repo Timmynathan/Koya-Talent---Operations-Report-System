@@ -3,11 +3,8 @@
 A dashboard that pulls sales, project & hiring data from three separate systems daily and
 uses AI to explain what changed, replacing manual report creation.
 
-**[Live dashboard →](https://koya-talent-operations-report-syste.vercel.app/
+**[Live dashboard →](https://koya-talent-operations-report-syste.vercel.app/)**
 <img width="1710" height="985" alt="Screenshot 2026-09-14 at 13 05 34" src="https://github.com/user-attachments/assets/d5848bbf-0bcc-484d-8e56-3f934f37bedd" />
-)**
-
-
 
 ---
 
